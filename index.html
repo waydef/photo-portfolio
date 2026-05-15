@@ -109,8 +109,8 @@
         /* GALLERY GRID */
         .gallery-grid {
             display: grid; 
-            grid-template-columns: repeat(auto-fill, minmax(min(100%, 350px), 1fr));
-            gap: 25px;
+            grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr));
+            gap: 20px;
         }
 
         .card {
@@ -131,13 +131,28 @@
 
         /* LIGHTBOX */
         .lightbox {
-            position: fixed; inset: 0; background: rgba(0,0,0,0.98);
-            backdrop-filter: blur(20px); display: none;
+            position: fixed; inset: 0; background: rgba(0,0,0,0.95);
+            backdrop-filter: blur(10px); display: none;
             justify-content: center; align-items: center; z-index: 10001;
-            opacity: 0; transition: 0.3s; padding: 20px;
+            opacity: 0; transition: 0.3s; padding: 0; overflow: hidden;
         }
         .lightbox.active { opacity: 1; }
-        .lightbox img { max-height: 90vh; max-width: 100%; border-radius: 8px; object-fit: contain; }
+        .lb-close {
+            position: absolute; top: 20px; right: 30px; font-size: 50px;
+            color: rgba(255,255,255,0.7); cursor: pointer; z-index: 10002; transition: 0.2s;
+            line-height: 1;
+        }
+        .lb-close:hover { color: #fff; transform: scale(1.1) rotate(90deg); }
+        .lb-content {
+            width: 100%; height: 100%; display: flex;
+            justify-content: center; align-items: center; position: relative;
+        }
+        .lb-content img {
+            max-height: 95vh; max-width: 95vw; border-radius: 8px; object-fit: contain;
+            cursor: grab; transform-origin: center center;
+            transition: transform 0.1s ease-out;
+        }
+        .lb-content img:active { cursor: grabbing; }
 
         @media (max-width: 600px) {
             .tier-section { margin-bottom: 60px; }
@@ -165,7 +180,10 @@
 
 <main id="main-content"></main>
 
-<div class="lightbox" id="lb"><img id="lb-img" src="" alt=""></div>
+<div class="lightbox" id="lb">
+    <div class="lb-close" id="lb-close">&times;</div>
+    <div class="lb-content" id="lb-content"></div>
+</div>
 
 <script>
     const tieredData = [
@@ -183,7 +201,7 @@
         }
     ];
 
-    document.getElementById('hero-bg').style.backgroundImage = `url('img/${tieredData[0].files[0]}')`;
+    document.getElementById('hero-bg').style.backgroundImage = `url('img/web/${tieredData[0].files[0]}')`;
 
     // Loader logic
     let progress = 0;
@@ -217,7 +235,7 @@
             tier.files.forEach(file => {
                 const card = document.createElement('div');
                 card.className = 'card';
-                card.innerHTML = `<img data-src="img/${file}" alt="" loading="lazy">`;
+                card.innerHTML = `<img data-src="img/web/${file}" alt="" loading="lazy">`;
                 card.onclick = () => showLightbox(`img/${file}`);
                 grid.appendChild(card);
             });
@@ -238,17 +256,102 @@
         document.querySelectorAll('img[data-src]').forEach(img => observer.observe(img));
     }
 
+    let zoom = 1;
+    let panX = 0;
+    let panY = 0;
+    let isDragging = false;
+    let startX = 0;
+    let startY = 0;
+    
+    const lb = document.getElementById('lb');
+    const lbContent = document.getElementById('lb-content');
+    const lbCloseBtn = document.getElementById('lb-close');
+
     function showLightbox(src) {
-        const lb = document.getElementById('lb');
-        document.getElementById('lb-img').src = src;
+        zoom = 1; panX = 0; panY = 0;
+        lbContent.innerHTML = `<img id="lb-img" src="${src}" alt="" style="transform: translate(0px, 0px) scale(1)">`;
         lb.style.display = 'flex';
         setTimeout(() => lb.classList.add('active'), 10);
+        setupZoomAndPan();
     }
 
-    document.getElementById('lb').onclick = function() {
-        this.classList.remove('active');
-        setTimeout(() => this.style.display = 'none', 300);
-    };
+    function closeLightbox() {
+        lb.classList.remove('active');
+        setTimeout(() => {
+            lb.style.display = 'none';
+            lbContent.innerHTML = ''; // Очистка памяти! (Удаляем <img>)
+        }, 300);
+    }
+
+    lb.addEventListener('click', (e) => {
+        if (e.target === lb || e.target === lbContent) closeLightbox();
+    });
+    lbCloseBtn.addEventListener('click', closeLightbox);
+
+    function setupZoomAndPan() {
+        const img = document.getElementById('lb-img');
+        if (!img) return;
+
+        // ПК: Zoom колесиком
+        img.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const zoomDelta = e.deltaY > 0 ? 0.9 : 1.1;
+            zoom = Math.max(1, Math.min(zoom * zoomDelta, 5));
+            if (zoom === 1) { panX = 0; panY = 0; }
+            updateTransform();
+        }, {passive: false});
+
+        // ПК: Panning (перетаскивание)
+        img.addEventListener('mousedown', (e) => {
+            if (zoom <= 1) return;
+            isDragging = true;
+            startX = e.clientX - panX;
+            startY = e.clientY - panY;
+        });
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            panX = e.clientX - startX;
+            panY = e.clientY - startY;
+            updateTransform();
+        });
+        window.addEventListener('mouseup', () => isDragging = false);
+
+        // Мобилки: Pinch & Pan
+        let initialDist = 0;
+        let initialZoom = 1;
+
+        img.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 2) {
+                initialDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+                initialZoom = zoom;
+            } else if (e.touches.length === 1 && zoom > 1) {
+                isDragging = true;
+                startX = e.touches[0].clientX - panX;
+                startY = e.touches[0].clientY - panY;
+            }
+        });
+
+        img.addEventListener('touchmove', (e) => {
+            if (zoom > 1 || e.touches.length === 2) e.preventDefault(); // блочим скролл страницы только если мы в зуме
+            
+            if (e.touches.length === 2) {
+                const currentDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+                zoom = Math.max(1, Math.min(initialZoom * (currentDist / initialDist), 5));
+                if (zoom === 1) { panX = 0; panY = 0; }
+                updateTransform();
+            } else if (e.touches.length === 1 && isDragging) {
+                panX = e.touches[0].clientX - startX;
+                panY = e.touches[0].clientY - startY;
+                updateTransform();
+            }
+        }, {passive: false});
+
+        img.addEventListener('touchend', () => isDragging = false);
+
+        function updateTransform() {
+            img.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+        }
+    }
 
     // Cursor tracking
     if (window.matchMedia("(pointer: fine)").matches) {

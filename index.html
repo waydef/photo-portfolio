@@ -7,6 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Syncopate:wght@700&family=Manrope:wght@400;600;800&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/color-thief/2.3.0/color-thief.umd.js"></script>
     <style>
         :root {
             --bg: #050505;
@@ -16,6 +17,7 @@
             --tier-s: #ffd700;
             --tier-a: #c0c0c0;
             --tier-b: #cd7f32;
+            --title-color: #FFB03A;
         }
 
         /* базовая оптимизация */
@@ -85,7 +87,7 @@
             letter-spacing: -0.04em;
             position: relative;
             color: transparent;
-            background: linear-gradient(180deg, #fff 0%, #FFB03A 100%);
+            background: linear-gradient(180deg, #fff 0%, var(--title-color) 100%);
             -webkit-background-clip: text;
             background-clip: text;
             text-shadow: 0 10px 30px rgba(0,0,0,0.5);
@@ -200,7 +202,24 @@
         }
     ];
 
-    document.getElementById('hero-bg').style.backgroundImage = `url('img/web/${tieredData[0].files[0]}')`;
+    const sTierFiles = tieredData[0].files;
+    const randomHeroImage = sTierFiles[Math.floor(Math.random() * sTierFiles.length)];
+    const heroUrl = `img/web/${randomHeroImage}`;
+
+    document.getElementById('hero-bg').style.backgroundImage = `url('${heroUrl}')`;
+
+    const colorThief = new ColorThief();
+    const imgForColor = new Image();
+    imgForColor.crossOrigin = 'Anonymous';
+    imgForColor.onload = () => {
+        try {
+            const color = colorThief.getColor(imgForColor);
+            document.documentElement.style.setProperty('--title-color', `rgb(${color[0]}, ${color[1]}, ${color[2]})`);
+        } catch (e) {
+            console.warn("ColorThief failed (likely local CORS issue). Falling back to default color.");
+        }
+    };
+    imgForColor.src = heroUrl;
 
     // Loader logic
     let progress = 0;

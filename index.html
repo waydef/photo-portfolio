@@ -203,7 +203,14 @@
     ];
 
     const sTierFiles = tieredData[0].files;
-    const randomHeroImage = sTierFiles[Math.floor(Math.random() * sTierFiles.length)];
+    let lastImage = localStorage.getItem('lastHeroImage');
+    
+    let availableFiles = sTierFiles.filter(file => file !== lastImage);
+    if (availableFiles.length === 0) availableFiles = sTierFiles;
+    
+    const randomHeroImage = availableFiles[Math.floor(Math.random() * availableFiles.length)];
+    localStorage.setItem('lastHeroImage', randomHeroImage);
+    
     const heroUrl = `img/web/${randomHeroImage}`;
 
     document.getElementById('hero-bg').style.backgroundImage = `url('${heroUrl}')`;
@@ -229,7 +236,8 @@
 
     const colorThief = new ColorThief();
     const imgForColor = new Image();
-    imgForColor.crossOrigin = 'Anonymous';
+    
+    // Important: Do not set crossOrigin='Anonymous' for same-origin requests as it may block loading on some static hosts without proper headers.
     imgForColor.onload = () => {
         try {
             const rgb = colorThief.getColor(imgForColor);
@@ -239,7 +247,7 @@
             l = 0.6;
             document.documentElement.style.setProperty('--title-color', `hsl(${h * 360}, ${s * 100}%, ${l * 100}%)`);
         } catch (e) {
-            console.warn("ColorThief failed (likely local CORS issue). Falling back to default color.");
+            console.warn("ColorThief failed (SecurityError). Note: Canvas data extraction does not work via 'file://' protocol. Please open via localhost or GitHub Pages to see dynamic colors.");
         }
     };
     imgForColor.src = heroUrl;

@@ -238,17 +238,23 @@
     const colorThief = new ColorThief();
     const imgForColor = new Image();
     
-    // crossOrigin здесь не ставим: file:// не даёт извлечь canvas-данные без заголовков, важен только localhost/ghpages
+    // crossOrigin здесь не ставим: file:// не даёт canvas-данные без заголовков
     imgForColor.onload = () => {
         try {
-            const rgb = colorThief.getColor(imgForColor);
-            let [h, s, l] = rgbToHsl(rgb[0], rgb[1], rgb[2]);
-            // 100% насыщенность + 60% яркость дают максимальную живость без пережигания
-            s = 1.0; 
-            l = 0.6;
-            document.documentElement.style.setProperty('--title-color', `hsl(${h * 360}, ${s * 100}%, ${l * 100}%)`);
+            // берём палитру из 6 цветов и выбираем самый насыщенный
+            // getColor() берёт доминирующий — часто серый или мутный
+            const palette = colorThief.getPalette(imgForColor, 6);
+            let bestColor = palette[0];
+            let bestSat = -1;
+            for (const rgb of palette) {
+                const [, s, l] = rgbToHsl(rgb[0], rgb[1], rgb[2]);
+                if (l < 0.1 || l > 0.9 || s < 0.2) continue; // пропускаем чёрное, белое, серое
+                if (s > bestSat) { bestSat = s; bestColor = rgb; }
+            }
+            const [h] = rgbToHsl(bestColor[0], bestColor[1], bestColor[2]);
+            document.documentElement.style.setProperty('--title-color', `hsl(${h * 360}, 90%, 65%)`);
         } catch (e) {
-            console.warn("ColorThief failed (SecurityError). Note: Canvas data extraction does not work via 'file://' protocol. Please open via localhost or GitHub Pages to see dynamic colors.");
+            console.warn('colorThief: canvas extraction failed (file:// protocol)');
         }
     };
     imgForColor.src = heroUrl;
@@ -310,24 +316,29 @@
     let isDragging = false;
     let startX = 0;
     let startY = 0;
+    let panController = null; // AbortController для очистки window-обработчиков
     
     const lb = document.getElementById('lb');
     const lbContent = document.getElementById('lb-content');
     const lbCloseBtn = document.getElementById('lb-close');
 
     function showLightbox(src) {
-        zoom = 1; panX = 0; panY = 0;
-        lbContent.innerHTML = `<img id="lb-img" src="${src}" alt="" style="transform: translate(0px, 0px) scale(1)">`;
+        zoom = 1; panX = 0; panY = 0; isDragging = false;
+        if (panController) panController.abort(); // убираем старые window-обработчики
+        panController = new AbortController();
+        lbContent.innerHTML = `<img id="lb-img" src="${src}" alt="" draggable="false" style="transform: translate(0px, 0px) scale(1)">`;
         lb.style.display = 'flex';
         setTimeout(() => lb.classList.add('active'), 10);
-        setupZoomAndPan();
+        setupZoomAndPan(panController.signal);
     }
 
     function closeLightbox() {
+        if (panController) { panController.abort(); panController = null; }
+        isDragging = false;
         lb.classList.remove('active');
         setTimeout(() => {
             lb.style.display = 'none';
-            lbContent.innerHTML = ''; // Очистка памяти! (Удаляем <img>)
+            lbContent.innerHTML = ''; // очищаем память
         }, 300);
     }
 
@@ -336,41 +347,51 @@
     });
     lbCloseBtn.addEventListener('click', closeLightbox);
 
-    function setupZoomAndPan() {
+    function setupZoomAndPan(signal) {
         const img = document.getElementById('lb-img');
         if (!img) return;
 
-        // ПК: Zoom колесиком
+        function updateTransform() {
+            img.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+        }
+
+        // zoom колесиком
         img.addEventListener('wheel', (e) => {
             e.preventDefault();
-            const zoomDelta = e.deltaY > 0 ? 0.9 : 1.1;
-            zoom = Math.max(1, Math.min(zoom * zoomDelta, 5));
+            const delta = e.deltaY > 0 ? 0.9 : 1.1;
+            zoom = Math.max(1, Math.min(zoom * delta, 5));
             if (zoom === 1) { panX = 0; panY = 0; }
             updateTransform();
-        }, {passive: false});
+        }, { passive: false });
 
-        // ПК: Panning (перетаскивание)
+        // пан мышкой — блокируем нативный drag через preventDefault
         img.addEventListener('mousedown', (e) => {
             if (zoom <= 1) return;
+            e.preventDefault(); // без этого браузер перехватывает drag на <img>
             isDragging = true;
             startX = e.clientX - panX;
             startY = e.clientY - panY;
         });
+
+        // window-обработчики с signal — автоматически удаляются при abort()
         window.addEventListener('mousemove', (e) => {
             if (!isDragging) return;
             panX = e.clientX - startX;
             panY = e.clientY - startY;
             updateTransform();
-        });
-        window.addEventListener('mouseup', () => isDragging = false);
+        }, { signal });
+        window.addEventListener('mouseup', () => { isDragging = false; }, { signal });
 
-        // Мобилки: Pinch & Pan
+        // мобилки: pinch & pan
         let initialDist = 0;
         let initialZoom = 1;
 
         img.addEventListener('touchstart', (e) => {
             if (e.touches.length === 2) {
-                initialDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+                initialDist = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
                 initialZoom = zoom;
             } else if (e.touches.length === 1 && zoom > 1) {
                 isDragging = true;
@@ -380,11 +401,13 @@
         });
 
         img.addEventListener('touchmove', (e) => {
-            if (zoom > 1 || e.touches.length === 2) e.preventDefault(); // блочим скролл страницы только если мы в зуме
-            
+            if (zoom > 1 || e.touches.length === 2) e.preventDefault();
             if (e.touches.length === 2) {
-                const currentDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-                zoom = Math.max(1, Math.min(initialZoom * (currentDist / initialDist), 5));
+                const dist = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
+                zoom = Math.max(1, Math.min(initialZoom * (dist / initialDist), 5));
                 if (zoom === 1) { panX = 0; panY = 0; }
                 updateTransform();
             } else if (e.touches.length === 1 && isDragging) {
@@ -392,13 +415,9 @@
                 panY = e.touches[0].clientY - startY;
                 updateTransform();
             }
-        }, {passive: false});
+        }, { passive: false });
 
-        img.addEventListener('touchend', () => isDragging = false);
-
-        function updateTransform() {
-            img.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
-        }
+        img.addEventListener('touchend', () => { isDragging = false; });
     }
 
     // Cursor tracking

@@ -237,12 +237,12 @@
     const colorThief = new ColorThief();
     const imgForColor = new Image();
     
-    // Important: Do not set crossOrigin='Anonymous' for same-origin requests as it may block loading on some static hosts without proper headers.
+    // crossOrigin здесь не ставим: file:// не даёт извлечь canvas-данные без заголовков, важен только localhost/ghpages
     imgForColor.onload = () => {
         try {
             const rgb = colorThief.getColor(imgForColor);
             let [h, s, l] = rgbToHsl(rgb[0], rgb[1], rgb[2]);
-            // Boost vibrancy: 100% saturation, balanced lightness (60%)
+            // 100% насыщенность + 60% яркость дают максимальную живость без пережигания
             s = 1.0; 
             l = 0.6;
             document.documentElement.style.setProperty('--title-color', `hsl(${h * 360}, ${s * 100}%, ${l * 100}%)`);
@@ -252,7 +252,6 @@
     };
     imgForColor.src = heroUrl;
 
-    // Loader logic
     let progress = 0;
     const loaderInterval = setInterval(() => {
         progress += Math.random() * 20;
@@ -291,7 +290,6 @@
             main.appendChild(section);
         });
 
-        // Lazy load observer for smooth entry
         const observer = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
